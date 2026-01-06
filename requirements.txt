@@ -7,3 +7,4 @@ pandas
 python-pptx
 pdfminer.six
 beautifulsoup4
+tabulate
