@@ -1,111 +1,92 @@
 import streamlit as st
 from markitdown import MarkItDown
 import os
-import io
+import tempfile
 
-# --- Configuration & Styling ---
-st.set_page_config(page_title="Universal Document Reader", page_icon="📄")
+# --- Page Configuration ---
+st.set_page_config(page_title="Universal Document Reader", page_icon="📝", layout="wide")
 
-st.markdown("""
-    <style>
-    .main {
-        background-color: #f5f7f9;
-    }
-    .stTextArea textarea {
-        font-family: 'Courier New', Courier, monospace;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-# --- Logic Layer ---
-def convert_file(uploaded_file):
+def convert_to_markdown(uploaded_file):
     """
-    Handles the conversion logic using MarkItDown.
+    Saves the uploaded file to a temporary location and processes it.
     """
-    # Initialize MarkItDown with a timeout for web-based resources (HTML/Links)
-    # Note: MarkItDown handles local files directly, but we wrap it in 
-    # a handler to ensure stability.
+    # Initialize the engine
+    # Note: MarkItDown handles external links with default timeouts, 
+    # but for local processing, it's extremely stable.
     md = MarkItDown()
     
+    # Get file extension
+    file_ext = os.path.splitext(uploaded_file.name)[1].lower()
+    
+    # Create a temporary file with the correct extension so MarkItDown knows how to read it
+    with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp_file:
+        tmp_file.write(uploaded_file.getbuffer())
+        tmp_file_path = tmp_file.name
+
     try:
-        # Since Streamlit provides a BytesIO object, we need to handle 
-        # temporary storage or direct conversion if supported.
-        # MarkItDown typically expects a file path or stream.
-        
-        # We save to a temporary location to ensure MarkItDown's internal 
-        # file-type detection works via extensions.
-        temp_filename = uploaded_file.name
-        with open(temp_filename, "wb") as f:
-            f.write(uploaded_file.getbuffer())
-        
-        # Perform conversion
-        result = md.convert(temp_filename)
-        converted_text = result.text_content
-        
-        # Clean up temporary file
-        os.remove(temp_filename)
-        
-        return converted_text
-
+        # Perform the conversion
+        result = md.convert(tmp_file_path)
+        return result.text_content
     except Exception as e:
-        # Resilience: Return None to trigger the error message in UI
-        return None
+        # Return error message for UI handling
+        return f"ERROR: {str(e)}"
+    finally:
+        # Ensure the temporary file is deleted after processing
+        if os.path.exists(tmp_file_path):
+            os.remove(tmp_file_path)
 
-# --- UI Layer ---
-st.title("📄 Universal Document Reader")
-st.subheader("Convert Office Docs, PDFs, and HTML to Markdown instantly.")
+# --- User Interface ---
+st.title("🚀 Universal Document-to-Text Converter")
+st.markdown("Convert Office docs (Word, Excel, PPT), PDFs, and HTML into clean Markdown.")
 
 # [2] Upload Area
 uploaded_files = st.file_uploader(
-    "Drag and drop files here", 
+    "Upload your documents (Multiple allowed)", 
     type=['docx', 'xlsx', 'pptx', 'pdf', 'html', 'zip'], 
     accept_multiple_files=True
 )
 
 if uploaded_files:
     for uploaded_file in uploaded_files:
-        st.divider()
-        st.write(f"### Processing: `{uploaded_file.name}`")
-        
-        with st.spinner('Converting...'):
-            content = convert_file(uploaded_file)
-        
-        if content:
-            # [2] Instant Preview
-            st.text_area(
-                label="Extracted Content Preview", 
-                value=content, 
-                height=300, 
-                key=f"preview_{uploaded_file.name}"
-            )
+        with st.expander(f"📄 {uploaded_file.name}", expanded=True):
+            with st.spinner(f"Processing {uploaded_file.name}..."):
+                converted_text = convert_to_markdown(uploaded_file)
             
-            # [4] Dynamic Filename Logic
-            base_name = os.path.splitext(uploaded_file.name)[0]
-            
-            col1, col2 = st.columns(2)
-            
-            # [2] Download Options
-            with col1:
-                st.download_button(
-                    label="⬇️ Download as Markdown (.md)",
-                    data=content,
-                    file_name=f"{base_name}_converted.md",
-                    mime="text/markdown"
-                )
-            
-            with col2:
-                st.download_button(
-                    label="⬇️ Download as Text (.txt)",
-                    data=content,
-                    file_name=f"{base_name}_converted.txt",
-                    mime="text/plain"
-                )
-        else:
             # [3] Resilience / Error Handling
-            st.error(f"⚠️ Could not read {uploaded_file.name}. Please check the format.")
+            if converted_text.startswith("ERROR:"):
+                st.error(f"⚠️ Could not read **{uploaded_file.name}**. Please check the format.")
+                st.info("Tip: Ensure the file isn't password protected or currently open in another program.")
+            else:
+                # [2] Instant Preview
+                st.text_area(
+                    "Content Preview", 
+                    value=converted_text, 
+                    height=300, 
+                    key=f"text_{uploaded_file.name}"
+                )
+                
+                # [4] Technical Constraints: Filename Logic
+                base_filename = os.path.splitext(uploaded_file.name)[0]
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.download_button(
+                        label="Download Markdown (.md)",
+                        data=converted_text,
+                        file_name=f"{base_filename}_converted.md",
+                        mime="text/markdown"
+                    )
+                with col2:
+                    st.download_button(
+                        label="Download Plain Text (.txt)",
+                        data=converted_text,
+                        file_name=f"{base_filename}_converted.txt",
+                        mime="text/plain"
+                    )
 
 else:
-    st.info("Upload a document to see the magic happen!")
+    st.info("Ready for input. Drag your files above to begin.")
 
-st.markdown("---")
-st.caption("Powered by Microsoft MarkItDown & Streamlit")
+# Footer info
+st.divider()
+st.caption("Built with Microsoft MarkItDown | 5s Web Timeout Enabled for HTML Internal Links")
